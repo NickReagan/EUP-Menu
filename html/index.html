@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EUP Menu</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="overlay">
+        <div id="panel">
+            <div id="header">
+                <div id="header-text">
+                    <h1 id="panel-title">EUP Menu</h1>
+                    <p id="panel-subtitle"></p>
+                </div>
+                <button id="close-btn" onclick="nuiClose()">✕</button>
+            </div>
+
+            <div id="breadcrumb">
+                <button id="back-btn" onclick="goBack()">← Back</button>
+                <span id="breadcrumb-text"></span>
+            </div>
+
+            <div id="list"></div>
+
+            <div id="list-footer">
+                <span id="page-info"></span>
+                <div id="page-btns">
+                    <button class="page-btn" id="prev-btn" onclick="changePage(-1)">← Prev</button>
+                    <button class="page-btn" id="next-btn" onclick="changePage(1)">Next →</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

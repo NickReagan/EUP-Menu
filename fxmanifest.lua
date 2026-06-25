@@ -9,8 +9,18 @@ version "v1.1"
 
 server_script "server.lua"
 
+shared_scripts {
+    "config.lua"
+}
+
 client_scripts {
-    "NativeUI.lua",
-    "config.lua",
     "menu.lua"
+}
+
+ui_page "html/index.html"
+
+files {
+    "html/index.html",
+    "html/style.css",
+    "html/app.js",
 }

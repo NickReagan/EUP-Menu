@@ -388,6 +388,79 @@ AddEventHandler("eup:setDeptAbbv", function(deptName, abbv)
     logWebhook(src, "Department Abbreviation Updated", "**" .. deptName .. "**: " .. abbv)
 end)
 
+-- ── Reordering ────────────────────────────────────────────────────────────────
+
+-- Swaps list[i] with its neighbour in direction dir (-1 = up, 1 = down).
+-- Returns false if the move would go past either end of the list.
+local function swapAdjacent(list, i, dir)
+    local j = i + dir
+    if j < 1 or j > #list then return false end
+    list[i], list[j] = list[j], list[i]
+    return true
+end
+
+local function normDir(dir)
+    dir = tonumber(dir)
+    if dir == -1 or dir == 1 then return dir end
+    return nil
+end
+
+RegisterNetEvent("eup:reorderDept")
+AddEventHandler("eup:reorderDept", function(deptName, dir)
+    local src = source
+    if not checkGroupAce(src, config.permissions.deptManageAce) then
+        notify(src, "~r~You do not have permission to manage departments.")
+        return
+    end
+    dir = normDir(dir)
+    if not dir or type(deptName) ~= "string" then return end
+    local i = findDept(deptName)
+    if not i then notify(src, "~r~Department not found."); return end
+    if not swapAdjacent(dynData.departments, i, dir) then return end
+    saveKVP(); broadcast()
+    logWebhook(src, "Department Reordered", "**" .. deptName .. "** moved " .. (dir < 0 and "up" or "down"))
+end)
+
+RegisterNetEvent("eup:reorderSub")
+AddEventHandler("eup:reorderSub", function(deptName, subName, dir)
+    local src = source
+    if type(deptName) ~= "string" or type(subName) ~= "string" then return end
+    if not checkDeptAce(src, deptName, "sub") then
+        notify(src, "~r~You do not have permission to manage sub-categories.")
+        return
+    end
+    dir = normDir(dir)
+    if not dir then return end
+    local _, dept = findDept(deptName)
+    if not dept then notify(src, "~r~Department not found."); return end
+    local i = findSub(dept, subName)
+    if not i then notify(src, "~r~Sub-category not found."); return end
+    if not swapAdjacent(dept.submenus, i, dir) then return end
+    saveKVP(); broadcast()
+    logWebhook(src, "Sub-Category Reordered", "**" .. subName .. "** in " .. deptName .. " moved " .. (dir < 0 and "up" or "down"))
+end)
+
+RegisterNetEvent("eup:reorderUniform")
+AddEventHandler("eup:reorderUniform", function(deptName, subName, uName, dir)
+    local src = source
+    if type(deptName) ~= "string" or type(subName) ~= "string" or type(uName) ~= "string" then return end
+    if not checkDeptAce(src, deptName, "uniform") then
+        notify(src, "~r~You do not have permission to manage uniforms.")
+        return
+    end
+    dir = normDir(dir)
+    if not dir then return end
+    local _, dept = findDept(deptName)
+    if not dept then notify(src, "~r~Uniform not found."); return end
+    local _, sub = findSub(dept, subName)
+    if not sub then notify(src, "~r~Uniform not found."); return end
+    local i = findUniform(sub, uName)
+    if not i then notify(src, "~r~Uniform not found."); return end
+    if not swapAdjacent(sub.uniforms, i, dir) then return end
+    saveKVP(); broadcast()
+    logWebhook(src, "Uniform Reordered", "**" .. uName .. "** in " .. deptName .. " / " .. subName .. " moved " .. (dir < 0 and "up" or "down"))
+end)
+
 -- ── Console: wipe all KVP data ────────────────────────────────────────────────
 
 RegisterCommand("eup_resetkvp", function(src)

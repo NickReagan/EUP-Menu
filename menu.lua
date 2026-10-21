@@ -244,6 +244,22 @@ RegisterNUICallback("deleteUniform", function(data, cb)
     cb({})
 end)
 
+-- Reordering (dir: -1 = up, 1 = down)
+RegisterNUICallback("reorderDept", function(data, cb)
+    TriggerServerEvent("eup:reorderDept", data.dept, data.dir)
+    cb({})
+end)
+
+RegisterNUICallback("reorderSub", function(data, cb)
+    TriggerServerEvent("eup:reorderSub", data.dept, data.sub, data.dir)
+    cb({})
+end)
+
+RegisterNUICallback("reorderUniform", function(data, cb)
+    TriggerServerEvent("eup:reorderUniform", data.dept, data.sub, data.uName, data.dir)
+    cb({})
+end)
+
 -- ── Server data events ────────────────────────────────────────────────
 
 RegisterNetEvent("eup:receiveData")

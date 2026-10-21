@@ -348,6 +348,27 @@ body {
     border-color: #3a3f55;
 }
 
+.action-btn:disabled,
+.action-btn:disabled:hover {
+    opacity: 0.3;
+    cursor: default;
+    background: #1a1e2d;
+    color: #8090b0;
+    border-color: #2a2d3a;
+}
+
+.action-btn.order-btn {
+    padding-left: 7px;
+    padding-right: 7px;
+}
+
+.action-btn.btn--focused {
+    background: #222638;
+    color: #dce2f5;
+    border-color: #2a5ab0;
+    box-shadow: 0 0 0 1px #2a5ab0;
+}
+
 .action-btn.danger:hover {
     background: rgba(180, 40, 40, .15);
     color: #d04040;

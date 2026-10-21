@@ -20,6 +20,8 @@ let _uniforms = [];
 // Keyboard navigation state
 let _focusIdx   = -1;
 let _focusItems = [];
+let _focusCol   = 0;     // 0 = card, 1+ = ▲/▼ button within the focused card
+let _pendingKb  = null;  // focus to restore after a keyboard-driven reorder re-renders the list
 
 // Whether the NUI currently holds cursor focus (admin views need it for typing)
 let _cursorMode     = false;
@@ -120,17 +122,17 @@ document.addEventListener('keydown', e => {
         kbFocus(_focusIdx < 0 ? 0 : _focusIdx + 1);
     } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        if (_focusIdx < 0) {
-            const items = document.querySelectorAll('#list .card[onclick]:not(.card--empty)');
-            kbFocus(items.length - 1);
-        } else {
-            kbFocus(_focusIdx - 1);
-        }
+        kbFocus(_focusIdx < 0 ? kbCards().length - 1 : _focusIdx - 1);
     } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (_focusIdx >= 0 && _focusItems[_focusIdx]) _focusItems[_focusIdx].click();
+        kbActivate();
+    } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        kbMoveCol(1);
     } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
+        // Step back out of the ▲/▼ buttons first; only go back a page from the card itself.
+        if (kbMoveCol(-1)) return;
         if (state.breadcrumb.length > 0) goBack();
         else nuiClose();
     }
@@ -204,6 +206,8 @@ function render() {
     // Clear keyboard focus whenever the view changes
     _focusIdx = -1;
     _focusItems = [];
+    _focusCol = 0;
+    restoreKbFocus();
 }
 
 // ── Header / breadcrumb ───────────────────────────────────────────────
@@ -277,7 +281,7 @@ function escS(str) {
 
 // ── Card builder ──────────────────────────────────────────────────────
 
-function card({ name, meta, accent, admin, dashed, empty, arrow = true, onclick, actions, extra }) {
+function card({ name, meta, accent, admin, dashed, empty, arrow = true, onclick, actions, extra, kbKey }) {
     const cls = ['card',
         admin  ? 'card--admin'  : '',
         dashed ? 'card--dashed' : '',
@@ -290,7 +294,7 @@ function card({ name, meta, accent, admin, dashed, empty, arrow = true, onclick,
     else if (arrow)     right = `<span class="card-arrow">›</span>`;
 
     return `
-<div class="${cls}"${onclick ? ` onclick="${onclick}"` : ''}>
+<div class="${cls}"${onclick ? ` onclick="${onclick}"` : ''}${kbKey ? ` data-kb-key="${kbKey}"` : ''}>
     <div class="card-accent"${accentStyle}></div>
     <div class="card-body">
         <div class="card-name">${esc(name)}</div>
@@ -478,13 +482,17 @@ function renderAdminDepts() {
     }
 
     const slice = paginate(depts);
-    slice.forEach(dept => {
+    slice.forEach((dept, i) => {
+        const idx   = state.page * state.perPage + i;
         const nSubs = (dept.submenus || []).length;
         const nU    = (dept.submenus || []).reduce((n, s) => n + (s.uniforms || []).length, 0);
         html += card({
             name: dept.name,
-            meta: `${esc(dept.description || 'No description')} · ${nSubs} sub-categor${nSubs === 1 ? 'y' : 'ies'} · ${nU} uniforms`,
+            meta: `${dept.description || 'No description'} · ${nSubs} sub-categor${nSubs === 1 ? 'y' : 'ies'} · ${nU} uniforms`,
             onclick: `adminDeptDetail('${escS(dept.name)}')`,
+            kbKey: safeId('admdept', dept.name),
+            actions: orderBtns(d => `reorderDept('${escS(dept.name)}',${d})`, idx, depts.length)
+                   + `<span class="card-arrow">›</span>`,
         });
     });
 
@@ -571,14 +579,14 @@ function renderAdminDeptDetail() {
     if (subs.length === 0) {
         html += '<div class="empty-state">No sub-categories yet.</div>';
     } else {
-        subs.forEach(sub => {
+        subs.forEach((sub, subIdx) => {
             const numU = (sub.uniforms || []).length;
             const subId = safeId('sub', dept.name + '|' + sub.name);
             const warn  = numU > 0
                 ? `${numU} uniform(s) will move to Uncategorized.`
                 : 'Delete this empty sub-category?';
             html += `
-<div class="card" style="flex-direction:column;align-items:stretch;cursor:default;" id="${subId}">
+<div class="card" style="flex-direction:column;align-items:stretch;cursor:default;" id="${subId}" data-kb-key="${subId}">
     <div style="display:flex;align-items:center;gap:14px">
         <div class="card-accent"></div>
         <div class="card-body">
@@ -586,6 +594,7 @@ function renderAdminDeptDetail() {
             <div class="card-meta">${esc(sub.description || 'No description')} · ${numU} uniform${numU !== 1 ? 's' : ''}</div>
         </div>
         <div class="card-actions">
+            ${orderBtns(d => `reorderSub('${escS(sub.name)}',${d})`, subIdx, subs.length)}
             <button class="action-btn" onclick="inlineSubEdit('${escS(sub.name)}','${escS(sub.description||'')}')">Edit Desc</button>
             <button class="action-btn danger" onclick="inlineSubDel('${escS(sub.name)}','${escS(warn)}')">Delete</button>
         </div>
@@ -755,11 +764,12 @@ function renderAdminUnifSub() {
     }
 
     const slice = paginate(uniforms);
-    slice.forEach(u => {
+    slice.forEach((u, i) => {
+        const idx    = state.page * state.perPage + i;
         const gender = u.pedModel === 'mp_f_freemode_01' ? 'Female' : 'Male';
         const id = safeId('unif', state.dept.name + '|' + state.sub.name + '|' + u.name);
         html += `
-<div class="card" style="flex-direction:column;align-items:stretch;cursor:default;" id="${id}">
+<div class="card" style="flex-direction:column;align-items:stretch;cursor:default;" id="${id}" data-kb-key="${id}">
     <div style="display:flex;align-items:center;gap:12px">
         <div class="card-accent"></div>
         <div class="card-body">
@@ -767,6 +777,7 @@ function renderAdminUnifSub() {
             <div class="card-meta">${gender}</div>
         </div>
         <div class="card-actions">
+            ${orderBtns(d => `reorderUniform('${escS(u.name)}',${d})`, idx, uniforms.length)}
             <button class="action-btn" onclick="inlineUnifOverride('${escS(u.name)}')">Override</button>
             <button class="action-btn" onclick="inlineUnifRename('${escS(u.name)}')">Rename</button>
             <button class="action-btn" onclick="inlineUnifMove('${escS(u.name)}')">Move</button>
@@ -893,6 +904,43 @@ function inlineUnifDel(uName) {
     div.style.display = '';
 }
 
+// ── Reordering ────────────────────────────────────────────────────────
+
+// Builds ▲/▼ buttons. `call(dir)` returns the onclick JS for a direction
+// (-1 = up, 1 = down). stopPropagation keeps the click from also
+// triggering the card's own onclick.
+function orderBtns(call, idx, total) {
+    const btn = (dir, label, disabled) =>
+        `<button class="action-btn order-btn" data-dir="${dir}" title="Move ${dir < 0 ? 'up' : 'down'}"${disabled ? ' disabled' : ''}
+                 onclick="event.stopPropagation();rememberKbFocus(this);${call(dir)}">${label}</button>`;
+    return btn(-1, '▲', idx === 0) + btn(1, '▼', idx >= total - 1);
+}
+
+// When an item crosses a page boundary, follow it to the neighbouring page.
+function followReorder(idx, dir) {
+    const target = idx + dir;
+    state.page = Math.floor(target / state.perPage);
+}
+
+function reorderDept(deptName, dir) {
+    const depts = (state.data && state.data.departments) || [];
+    const idx = depts.findIndex(d => d.name === deptName);
+    if (idx < 0) return;
+    followReorder(idx, dir);
+    nuiFetch('reorderDept', { dept: deptName, dir });
+}
+
+function reorderSub(subName, dir) {
+    nuiFetch('reorderSub', { dept: state.dept.name, sub: subName, dir });
+}
+
+function reorderUniform(uName, dir) {
+    const idx = (state.sub.uniforms || []).findIndex(u => u.name === uName);
+    if (idx < 0) return;
+    followReorder(idx, dir);
+    nuiFetch('reorderUniform', { dept: state.dept.name, sub: state.sub.name, uName, dir });
+}
+
 // ── Shared helpers ────────────────────────────────────────────────────
 
 function closeInlineEdits() {
@@ -906,12 +954,77 @@ function safeId(prefix, key) {
 
 // ── Keyboard focus ────────────────────────────────────
 
+// Up/Down moves between cards only. Right/Left steps into and out of the
+// focused card's ▲/▼ buttons (column 0 = the card itself).
+
+function kbCards() {
+    return Array.from(document.querySelectorAll('#list .card[onclick]:not(.card--empty), #list .card[data-kb-key]'));
+}
+
+function kbOrderBtns(cardEl) {
+    return cardEl ? Array.from(cardEl.querySelectorAll('.order-btn:not(:disabled)')) : [];
+}
+
 function kbFocus(idx) {
-    _focusItems = Array.from(document.querySelectorAll('#list .card[onclick]:not(.card--empty)'));
+    _focusItems = kbCards();
+    _focusCol = 0;
     if (_focusItems.length === 0) { _focusIdx = -1; return; }
     _focusIdx = ((idx % _focusItems.length) + _focusItems.length) % _focusItems.length;
+    kbPaint();
+}
+
+// Returns true if the column changed (so Left at column 0 can fall through to "back").
+function kbMoveCol(delta) {
+    if (_focusIdx < 0) return false;
+    const btns = kbOrderBtns(_focusItems[_focusIdx]);
+    const col  = Math.max(0, Math.min(btns.length, _focusCol + delta));
+    if (col === _focusCol) return false;
+    _focusCol = col;
+    kbPaint();
+    return true;
+}
+
+function kbPaint() {
+    document.querySelectorAll('#list .btn--focused').forEach(b => b.classList.remove('btn--focused'));
     _focusItems.forEach((el, i) => el.classList.toggle('card--focused', i === _focusIdx));
-    _focusItems[_focusIdx].scrollIntoView({ block: 'nearest' });
+    const cardEl = _focusItems[_focusIdx];
+    if (!cardEl) return;
+    const btn = _focusCol > 0 ? kbOrderBtns(cardEl)[_focusCol - 1] : null;
+    if (btn) btn.classList.add('btn--focused');
+    cardEl.scrollIntoView({ block: 'nearest' });
+}
+
+function kbActivate() {
+    const cardEl = _focusItems[_focusIdx];
+    if (!cardEl) return;
+    const btn = _focusCol > 0 ? kbOrderBtns(cardEl)[_focusCol - 1] : null;
+    (btn || cardEl).click();
+}
+
+// Called when a ▲/▼ button is pressed. If it was pressed via the keyboard,
+// keep focus on the same item and button after the list re-renders, so
+// repeated Enter presses keep moving it.
+function rememberKbFocus(btn) {
+    if (_focusCol === 0) return;
+    const cardEl = btn.closest('[data-kb-key]');
+    if (cardEl) _pendingKb = { key: cardEl.dataset.kbKey, dir: btn.dataset.dir };
+}
+
+function restoreKbFocus() {
+    if (!_pendingKb) return;
+    const { key, dir } = _pendingKb;
+    _pendingKb = null;
+    _focusItems = kbCards();
+    _focusIdx = _focusItems.findIndex(el => el.dataset.kbKey === key);
+    _focusCol = 0;
+    if (_focusIdx < 0) return;
+    const btns = kbOrderBtns(_focusItems[_focusIdx]);
+    if (btns.length) {
+        // Stay on the same arrow if still enabled; otherwise the remaining one.
+        const same = btns.findIndex(b => b.dataset.dir === dir);
+        _focusCol = (same >= 0 ? same : 0) + 1;
+    }
+    kbPaint();
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────
